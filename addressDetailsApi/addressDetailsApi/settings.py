@@ -11,14 +11,24 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 from pathlib import Path
-import os
 from dotenv import load_dotenv
+import os
 
+
+os.environ["GDAL_LIBRARY_PATH"] = ""
 # Load environment variables from .env file
 load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+FOOTPRINTS_QUERY_PARAMS_FOR_CADASTRAL_PARCEL = {
+    "geometryType": "esriGeometryEnvelope",
+    "inSR": "4326",
+    "spatialRel": "esriSpatialRelIntersects",
+    "outFields": "n_sq_pc", 
+    "f": "json"
+}
 
 
 # Quick-start development settings - unsuitable for production
@@ -87,10 +97,14 @@ WSGI_APPLICATION = 'addressDetailsApi.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-DATABASES = {
+DATABASES = {   
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'real_estate',
+        'USER': 'postgres',
+        'PASSWORD': 'Insnapsys',
+        'HOST': 'localhost',
+        'PORT': '5432',
     }
 }
 
