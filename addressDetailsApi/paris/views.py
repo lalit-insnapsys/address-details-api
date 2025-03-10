@@ -130,13 +130,13 @@ def get_planning_permits(request, house_number: int, street_name: str, lat: str,
         parcel_data = fetch_parcel_by_id(parcel_data.get("parcel_id"))
 
         # Step 1: Get the building footprint using latitude and longitude
-        cadastral_parcel_id_list = get_cadastral_parcel_id(lat_val, lon_val)
+        cadastral_parcel_id = get_cadastral_parcel_id(lat_val, lon_val)
 
-        if not isinstance(cadastral_parcel_id_list, list) or len(cadastral_parcel_id_list) == 0:
+        if not isinstance(cadastral_parcel_id, int):
             raise LookupError("No buildings found for this location.")
 
         # Step 2: Use n_sq_pc values to fetch complete building data
-        grouped_building_data = get_building_data_by_cadastral_parcel_id(cadastral_parcel_id_list)
+        grouped_building_data = get_building_data_by_cadastral_parcel_id(cadastral_parcel_id)
         
         
         return Response({

@@ -213,18 +213,19 @@ def get_construction_year(attributes: dict) -> str:
 
 def get_cadastral_parcel_id(lat, lon):
     """
-    Fetches all buildings in a given lat/lon region and extracts their n_sq_pc values.
+    Fetches the nearest cadastral parcel ID (n_sq_pc) for a given lat/lon location.
 
     Args:
         lat (float): Latitude of the location.
         lon (float): Longitude of the location.
 
-    Returns: List of cadastral_parcel_id (n_sq_pc) values (same for the construction)
+    Returns:
+        str: The first cadastral_parcel_id (n_sq_pc) found, or an error message.
     """
-    BASE_URL=os.getenv("FOOTPRINTS_DATA")
-    params = settings.FOOTPRINTS_QUERY_PARAMS_FOR_CADASTRAL_PARCEL.copy()  # Parameters from config
+    BASE_URL = os.getenv("FOOTPRINTS_DATA")
+    params = settings.FOOTPRINTS_QUERY_PARAMS_FOR_CADASTRAL_PARCEL.copy()
 
-    # Dynamically update the geometry parameter
+    # Define a small bounding box around the coordinates
     params["geometry"] = f"{lon-0.0001},{lat-0.0001},{lon+0.0001},{lat+0.0001}"
 
     try:
@@ -232,78 +233,80 @@ def get_cadastral_parcel_id(lat, lon):
         response.raise_for_status()
         data = response.json()
 
-        if "features" not in data or len(data["features"]) == 0:
+        if "features" not in data or not data["features"]:
             return {"error": "No buildings found at this location."}
 
-        # Extract unique n_sq_pc value
-        cadastral_parcel_id_list = list(set(
-            feature.get("attributes", {}).get("n_sq_pc") for feature in data["features"]
-            if "attributes" in feature and feature["attributes"].get("n_sq_pc") is not None
-        ))
+        # Extract the first `n_sq_pc` value found
+        for feature in data["features"]:
+            n_sq_pc = feature.get("attributes", {}).get("n_sq_pc")
+            if n_sq_pc is not None:
+                return n_sq_pc  # Return the first found cadastral parcel ID
 
-        return cadastral_parcel_id_list  # Return the list of n_sq_pc value
+        return {"error": "No valid cadastral parcel ID found."}
 
     except requests.RequestException as e:
         return {"error": f"API request failed: {str(e)}"}
     
-    
-def get_building_data_by_cadastral_parcel_id(cadastral_parcel_id_list):
+  
+def get_building_data_by_cadastral_parcel_id(cadastral_parcel_id):
     """
-    Fetches full building data for the given list of cadastral_parcel_id (n_sq_pc) values, grouped by construction year.
+    Fetches full building data for a given cadastral_parcel_id (n_sq_pc) value, grouped by construction year.
 
     Args: 
-        cadastral_parcel_id_list (int): Number of square meters per parcel/contract for a given building footprint. 
+        cadastral_parcel_id (int): The cadastral parcel ID (n_sq_pc) associated with a building footprint.
     
-    Return: All the buildings footprints associated with the cadastral_parcel_id (n_sq_pc) value
+    Returns:
+        dict: Buildings grouped by construction year, including footprint details.
     """
+    if not cadastral_parcel_id:
+        return {"error": "Invalid cadastral parcel ID."}
+
     BASE_URL = os.getenv("FOOTPRINTS_DATA")
     grouped_buildings = {}  # Store buildings by year
 
-    for cadastral_parcel_id in cadastral_parcel_id_list:
-        params = {
-            "where": f"n_sq_pc = {cadastral_parcel_id}",  # Query filter by n_sq_pc
-            "outFields": "*",  # Fetch all attributes
-            "f": "json"
-        }
+    params = {
+        "where": f"n_sq_pc = {cadastral_parcel_id}",  # Query filter by n_sq_pc
+        "outFields": "*",  # Fetch all attributes
+        "f": "json"
+    }
 
-        try:
-            response = requests.get(BASE_URL, params=params)
-            response.raise_for_status()
-            data = response.json()
+    try:
+        response = requests.get(BASE_URL, params=params)
+        response.raise_for_status()
+        data = response.json()
 
-            if "features" not in data or len(data["features"]) == 0:
-                continue  # Skip if no data for this cadastral_parcel_id
+        if "features" not in data or not data["features"]:
+            return {"error": f"No building data found for cadastral parcel ID {cadastral_parcel_id}."}
 
-            for feature in data["features"]:
-                attributes = feature.get("attributes", {})
-                year = get_construction_year(attributes)
+        for feature in data["features"]:
+            attributes = feature.get("attributes", {})
+            year = get_construction_year(attributes)
 
-                # Convert coordinates if present
-                if "geometry" in feature and "rings" in feature["geometry"]:
-                    converted_rings = [
-                        [convert_coordinates_into_lat_lon(x, y) for x, y in ring]
-                        for ring in feature["geometry"]["rings"]
-                    ]
+            # Convert coordinates if present
+            if "geometry" in feature and "rings" in feature["geometry"]:
+                converted_rings = [
+                    [convert_coordinates_into_lat_lon(x, y) for x, y in ring]
+                    for ring in feature["geometry"]["rings"]
+                ]
 
-                    feature["geometry"] = {
-                        "type": "Polygon",
-                        "coordinates": converted_rings
-                    }
+                feature["geometry"] = {
+                    "type": "Polygon",
+                    "coordinates": converted_rings
+                }
 
-                # Add building to the correct year group
-                if year not in grouped_buildings:
-                    grouped_buildings[year] = []
+            # Add building to the correct year group
+            if year not in grouped_buildings:
+                grouped_buildings[year] = []
 
-                grouped_buildings[year].append({
-                    "cadastral_parcel_id": attributes.get("n_sq_pc", "Not Available"),
-                    "Shape_Area": attributes.get("Shape_Area", "Not Available"),
-                    "Shape_Length": attributes.get("Shape_Length", "Not Available"),
-                    "b_terrasse": attributes.get("b_terrasse", "Not Available"),
-                    "geometry": feature["geometry"]
-                })
+            grouped_buildings[year].append({
+                "cadastral_parcel_id": attributes.get("n_sq_pc", "Not Available"),
+                "Shape_Area": attributes.get("Shape_Area", "Not Available"),
+                "Shape_Length": attributes.get("Shape_Length", "Not Available"),
+                "b_terrasse": attributes.get("b_terrasse", "Not Available"),
+                "geometry": feature["geometry"]
+            })
 
-        except requests.RequestException as e:
-            print(f"API request failed for n_sq_pc {cadastral_parcel_id}: {str(e)}")
-            continue
+        return grouped_buildings  # Return grouped data
 
-    return grouped_buildings  # Returning grouped data
+    except requests.RequestException as e:
+        return {"error": f"API request failed for n_sq_pc {cadastral_parcel_id}: {str(e)}"}
